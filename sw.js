@@ -1,12 +1,13 @@
-const CACHE_NAME = 'seimei-program-timer-v1-9-1';
+const CACHE_NAME = 'seimei-program-timer-v1-9-2';
 const CORE_ASSETS = [
   './',
   './index.html',
-  './seimei_program_timer_v1_9_1.html',
+  './seimei_program_timer_v1_9_2.html',
   './manifest.webmanifest',
   './seimei_program_timer_icon_play_180.png',
   './seimei_program_timer_icon_play_192.png',
-  './seimei_program_timer_icon_play_512.png'
+  './seimei_program_timer_icon_play_512.png',
+  './beep.wav'
 ];
 
 self.addEventListener('install', event => {

@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-<title>SEIMEI Program Timer v1.9.1</title>
+<title>SEIMEI Program Timer v1.9.2</title>
 <link rel="icon" type="image/png" sizes="192x192" href="seimei_program_timer_icon_play_192.png">
 <link rel="apple-touch-icon" sizes="180x180" href="seimei_program_timer_icon_play_180.png">
 <link rel="manifest" href="manifest.webmanifest">
@@ -67,6 +67,7 @@ button.resetStepBtn{background:#334155}button.stepCtl{min-width:42px}.stepCountC
 </style>
 </head>
 <body>
+<audio id="beepAudio" src="beep.wav" preload="auto" playsinline></audio>
 <button class="fsExit" onclick="exitFullscreenMode()">表示を戻す</button>
 <div class="app">
   <main class="display">
@@ -98,7 +99,7 @@ button.resetStepBtn{background:#334155}button.stepCtl{min-width:42px}.stepCountC
 
 <div class="modal" id="editModal">
   <div class="modalBox">
-    <div class="modalHead"><h2>Program Timer Edit v1.9.1</h2><button class="small gray" onclick="closeEdit()">閉じる</button></div>
+    <div class="modalHead"><h2>Program Timer Edit v1.9.2</h2><button class="small gray" onclick="closeEdit()">閉じる</button></div>
     <div class="savedTimers">
       <div class="timerNameBox nameBox"><label>タイマー名</label><input id="timerName" value="基本練習"></div>
       <div class="timerNameBox selectBox"><label>保存済みタイマー</label><select id="savedSelect"></select></div>
@@ -115,6 +116,7 @@ button.resetStepBtn{background:#334155}button.stepCtl{min-width:42px}.stepCountC
       <div class="setting"><label>第2色（偶数STEP）</label><select id="color2Select" onchange="setColor2(this.value)"><option value="#38bdf8">シアン</option><option value="#ef4444">赤</option><option value="#22c55e">緑</option><option value="#facc15">黄</option><option value="#fb923c">オレンジ</option><option value="#e5e7eb">白</option><option value="#a78bfa">紫</option></select></div>
       <div class="setting"><label>数字フォント</label><select id="fontSelect" onchange="setFontMode(this.value)"><option value="impact">Digital Bold</option><option value="din">DIN風</option><option value="mono">Mono Bold</option><option value="system">System Bold</option><option value="seven">7セグメント</option></select></div>
       <div class="setting"><label>プログレスバー</label><select id="progressSelect" onchange="setProgressVisible(this.value==='show')"><option value="show">表示</option><option value="hide">非表示</option></select></div>
+      <div class="setting"><label>ブザー方式</label><select id="buzzerModeSelect" onchange="setBuzzerMode(this.value)"><option value="file">音声ファイル</option><option value="osc">電子音</option><option value="both">両方</option></select></div>
       <div class="setting"><label>ブザー音量</label><input id="volume" type="range" min="0" max="1" step="0.05" value="0.9"></div>
     </div>
     <div class="steps" id="steps"></div>
@@ -129,6 +131,7 @@ let currentStep=0,currentLoop=1,remain=steps[0];
 let running=false,timerId=null;
 let audioCtx=null;
 let audioReady=false;
+let buzzerMode="file";
 let fontMode="impact";
 let timerName="基本練習";
 let progressVisible=true;
@@ -164,13 +167,25 @@ function renderSeven(text){
   }).join('');
 }
 async function unlockAudio(){
+  let ctxOk=false, fileOk=false;
   try{
     if(!audioCtx) audioCtx=new (window.AudioContext||window.webkitAudioContext)();
     if(audioCtx.state==='suspended') await audioCtx.resume();
-    audioReady = audioCtx.state==='running';
-  }catch(e){
-    audioReady=false;
-  }
+    ctxOk = audioCtx.state==='running';
+  }catch(e){ ctxOk=false; }
+  try{
+    const a=document.getElementById('beepAudio');
+    if(a){
+      a.volume=0;
+      a.currentTime=0;
+      await a.play();
+      a.pause();
+      a.currentTime=0;
+      a.volume=normalizeVolume(document.getElementById('volume')?.value||0.9);
+      fileOk=true;
+    }
+  }catch(e){ fileOk=false; }
+  audioReady = ctxOk || fileOk;
   updateAudioStatus();
   return audioReady;
 }
@@ -186,9 +201,22 @@ function updateAudioStatus(){
   if(txt) txt.textContent=audioReady?'BUZZ':'SOUND';
 }
 function ensureAudio(){unlockAudio();}
-async function beep(times=1,long=false){
-  const ok=await unlockAudio();
-  if(!ok) return;
+async function playFileBeep(times=1,long=false){
+  const vol=normalizeVolume(document.getElementById('volume')?.value||0.9);
+  const gap=long?560:300;
+  for(let i=0;i<times;i++){
+    setTimeout(()=>{
+      try{
+        const a=new Audio('beep.wav');
+        a.preload='auto';
+        a.volume=vol;
+        a.play().catch(()=>{});
+      }catch(e){}
+    }, i*gap);
+  }
+}
+function playOscBeep(times=1,long=false){
+  if(!audioCtx || audioCtx.state!=='running') return false;
   const vol=normalizeVolume(document.getElementById('volume')?.value||0.9);
   for(let i=0;i<times;i++){
     const o=audioCtx.createOscillator(),g=audioCtx.createGain();
@@ -203,8 +231,28 @@ async function beep(times=1,long=false){
     o.start(start);
     o.stop(start+dur+0.02);
   }
+  return true;
+}
+async function beep(times=1,long=false){
+  const ok=await unlockAudio();
+  if(!ok) return;
+  const mode=normalizeBuzzerMode(buzzerMode);
+  if(mode==='file'){
+    await playFileBeep(times,long);
+  }else if(mode==='osc'){
+    if(!playOscBeep(times,long)) await playFileBeep(times,long);
+  }else{
+    await playFileBeep(times,long);
+    playOscBeep(times,long);
+  }
 }
 async function testBeep(){await beep(2)}
+function normalizeBuzzerMode(m){return ['file','osc','both'].includes(String(m))?String(m):'file'}
+function setBuzzerMode(mode){
+  buzzerMode=normalizeBuzzerMode(mode);
+  localStorage.setItem('seimeiProgBuzzerMode',buzzerMode);
+  saveState();
+}
 async function requestWakeLock(){
   if(!wakeLockEnabled || !('wakeLock' in navigator)) return false;
   try{
@@ -247,7 +295,7 @@ function advanceStep(){if(remain>0)return;let guard=0;do{currentStep++;if(curren
 function resetTimer(){pauseTimer();currentStep=0;currentLoop=1;remain=steps[0]||0;stepEndAt=0;render();saveState();}
 function openEdit(){pauseTimer();buildEdit();document.getElementById('editModal').classList.add('show')}
 function closeEdit(){saveFromInputs();document.getElementById('editModal').classList.remove('show');resetTimer();}
-function buildEdit(){document.getElementById('repeatCount').value=repeat;const fs=document.getElementById('fontSelect');if(fs)fs.value=fontMode;const cms=document.getElementById('colorModeSelect');if(cms)cms.value=digitColorMode;const c1=document.getElementById('colorSelect');if(c1)c1.value=digitColor1;const c2=document.getElementById('color2Select');if(c2)c2.value=digitColor2;const ps=document.getElementById('progressSelect');if(ps)ps.value=progressVisible?'show':'hide';const ws=document.getElementById('wakeLockSelect');if(ws)ws.value=wakeLockEnabled?'on':'off';const nameInput=document.getElementById('timerName');if(nameInput)nameInput.value=timerName||'基本練習';updateStepCountDisplay();refreshSavedSelect();renderSteps();}
+function buildEdit(){document.getElementById('repeatCount').value=repeat;const fs=document.getElementById('fontSelect');if(fs)fs.value=fontMode;const cms=document.getElementById('colorModeSelect');if(cms)cms.value=digitColorMode;const c1=document.getElementById('colorSelect');if(c1)c1.value=digitColor1;const c2=document.getElementById('color2Select');if(c2)c2.value=digitColor2;const ps=document.getElementById('progressSelect');if(ps)ps.value=progressVisible?'show':'hide';const ws=document.getElementById('wakeLockSelect');if(ws)ws.value=wakeLockEnabled?'on':'off';const bs=document.getElementById('buzzerModeSelect');if(bs)bs.value=buzzerMode;const nameInput=document.getElementById('timerName');if(nameInput)nameInput.value=timerName||'基本練習';updateStepCountDisplay();refreshSavedSelect();renderSteps();}
 function setStepCount(n){n=Math.max(1,Math.min(30,parseInt(n)||1));while(steps.length<n)steps.push(60);while(steps.length>n)steps.pop();updateStepCountDisplay();renderSteps();saveFromInputs(false)}
 function changeStepCount(delta){setStepCount(steps.length+delta)}
 function updateStepCountDisplay(){const el=document.getElementById('stepCountDisplay');if(el)el.textContent=steps.length;}
@@ -263,19 +311,19 @@ function setProgressVisible(flag){progressVisible=!!flag;localStorage.setItem('s
 function presetShort(){steps=[30,10,30,10,60];timerName='短めサンプル';const ni=document.getElementById('timerName');if(ni)ni.value=timerName;updateStepCountDisplay();renderSteps();saveFromInputs(false)}
 function presetVolley(){steps=[180,60,180,60,300];timerName='練習サンプル';const ni=document.getElementById('timerName');if(ni)ni.value=timerName;updateStepCountDisplay();renderSteps();saveFromInputs(false)}
 
-function getSavedTimers(){try{return JSON.parse(localStorage.getItem('seimeiNamedProgramTimersV173a')||localStorage.getItem('seimeiNamedProgramTimersV171')||localStorage.getItem('seimeiNamedProgramTimersV16')||localStorage.getItem('seimeiNamedProgramTimersV15')||'{}')}catch(e){return {}}}
-function setSavedTimers(obj){localStorage.setItem('seimeiNamedProgramTimersV173a',JSON.stringify(obj))}
+function getSavedTimers(){try{return JSON.parse(localStorage.getItem('seimeiNamedProgramTimersV192')||localStorage.getItem('seimeiNamedProgramTimersV171')||localStorage.getItem('seimeiNamedProgramTimersV16')||localStorage.getItem('seimeiNamedProgramTimersV15')||'{}')}catch(e){return {}}}
+function setSavedTimers(obj){localStorage.setItem('seimeiNamedProgramTimersV192',JSON.stringify(obj))}
 function refreshSavedSelect(){const sel=document.getElementById('savedSelect');if(!sel)return;const saved=getSavedTimers();sel.innerHTML='';const names=Object.keys(saved).sort((a,b)=>a.localeCompare(b,'ja'));if(!names.length){const op=document.createElement('option');op.value='';op.textContent='保存なし';sel.appendChild(op);return;}names.forEach(name=>{const op=document.createElement('option');op.value=name;op.textContent=name;if(name===timerName)op.selected=true;sel.appendChild(op);});}
-function saveNamedTimer(){saveFromInputs(false);timerName=normalizeName(timerName);const saved=getSavedTimers();saved[timerName]={steps:normalizeSteps(steps),repeat:clampInt(repeat,1,99,1),color:normalizeColor(digitColor1),color2:normalizeColor(digitColor2),colorMode:normalizeColorMode(digitColorMode),fontMode:normalizeFont(fontMode),progressVisible:!!progressVisible,wakeLockEnabled:!!wakeLockEnabled,vol:normalizeVolume(document.getElementById('volume')?.value)};setSavedTimers(saved);refreshSavedSelect();alert('「'+timerName+'」を保存しました');}
-function loadNamedTimer(){const sel=document.getElementById('savedSelect');if(!sel||!sel.value)return;const saved=getSavedTimers();const data=saved[sel.value];if(!data)return;timerName=normalizeName(sel.value);steps=normalizeSteps(data.steps);repeat=clampInt(data.repeat,1,99,1);if(data.color)digitColor1=normalizeColor(data.color);if(data.color2)digitColor2=normalizeColor(data.color2);digitColorMode=normalizeColorMode(data.colorMode);applyActiveDigitColor();fontMode=normalizeFont(data.fontMode);progressVisible=!!data.progressVisible;if(data.vol!==undefined)document.getElementById('volume').value=normalizeVolume(data.vol);buildEdit();resetTimer();}
+function saveNamedTimer(){saveFromInputs(false);timerName=normalizeName(timerName);const saved=getSavedTimers();saved[timerName]={steps:normalizeSteps(steps),repeat:clampInt(repeat,1,99,1),color:normalizeColor(digitColor1),color2:normalizeColor(digitColor2),colorMode:normalizeColorMode(digitColorMode),fontMode:normalizeFont(fontMode),progressVisible:!!progressVisible,wakeLockEnabled:!!wakeLockEnabled,buzzerMode:normalizeBuzzerMode(buzzerMode),vol:normalizeVolume(document.getElementById('volume')?.value)};setSavedTimers(saved);refreshSavedSelect();alert('「'+timerName+'」を保存しました');}
+function loadNamedTimer(){const sel=document.getElementById('savedSelect');if(!sel||!sel.value)return;const saved=getSavedTimers();const data=saved[sel.value];if(!data)return;timerName=normalizeName(sel.value);steps=normalizeSteps(data.steps);repeat=clampInt(data.repeat,1,99,1);if(data.color)digitColor1=normalizeColor(data.color);if(data.color2)digitColor2=normalizeColor(data.color2);digitColorMode=normalizeColorMode(data.colorMode);applyActiveDigitColor();fontMode=normalizeFont(data.fontMode);progressVisible=!!data.progressVisible;if(data.buzzerMode)buzzerMode=normalizeBuzzerMode(data.buzzerMode);if(data.vol!==undefined)document.getElementById('volume').value=normalizeVolume(data.vol);buildEdit();resetTimer();}
 function deleteNamedTimer(){const sel=document.getElementById('savedSelect');if(!sel||!sel.value)return;const name=sel.value;if(!confirm('「'+name+'」を削除しますか？'))return;const saved=getSavedTimers();delete saved[name];setSavedTimers(saved);refreshSavedSelect();}
 
 document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible' && running && wakeLockEnabled){requestWakeLock();}});
 function toggleFullscreenMode(){document.body.classList.add('isFull');const el=document.documentElement;if(el.requestFullscreen)el.requestFullscreen().catch(()=>{});}
 function exitFullscreenMode(){document.body.classList.remove('isFull');if(document.fullscreenElement&&document.exitFullscreen)document.exitFullscreen().catch(()=>{});}
 document.addEventListener('fullscreenchange',()=>{if(!document.fullscreenElement)document.body.classList.remove('isFull')});
-function saveState(){localStorage.setItem('seimeiProgramTimerV173a',JSON.stringify({steps:normalizeSteps(steps),repeat:clampInt(repeat,1,99,1),timerName:normalizeName(timerName),color:normalizeColor(digitColor1),color2:normalizeColor(digitColor2),colorMode:normalizeColorMode(digitColorMode),fontMode:normalizeFont(fontMode),progressVisible:!!progressVisible,wakeLockEnabled:!!wakeLockEnabled,vol:normalizeVolume(document.getElementById('volume')?.value)}))}
-function loadState(){try{const s=JSON.parse(localStorage.getItem('seimeiProgramTimerV173a')||localStorage.getItem('seimeiProgramTimerV172')||localStorage.getItem('seimeiProgramTimerV171')||localStorage.getItem('seimeiProgramTimerV17')||localStorage.getItem('seimeiProgramTimerV16')||localStorage.getItem('seimeiProgramTimerV15')||localStorage.getItem('seimeiProgramTimerV14')||localStorage.getItem('seimeiProgramTimerV12')||'{}');if(Array.isArray(s.steps)&&s.steps.length)steps=normalizeSteps(s.steps);repeat=clampInt(s.repeat,1,99,repeat);if(s.timerName)timerName=normalizeName(s.timerName);if(s.color)digitColor1=normalizeColor(s.color);if(s.color2)digitColor2=normalizeColor(s.color2);if(s.colorMode)digitColorMode=normalizeColorMode(s.colorMode);if(s.fontMode)fontMode=normalizeFont(s.fontMode);if(s.progressVisible!==undefined)progressVisible=!!s.progressVisible;if(s.wakeLockEnabled!==undefined)wakeLockEnabled=!!s.wakeLockEnabled;if(s.vol!==undefined)document.getElementById('volume').value=normalizeVolume(s.vol);}catch(e){}const oldColor=localStorage.getItem('seimeiProgColor');if(oldColor)digitColor1=normalizeColor(oldColor);const oldColor2=localStorage.getItem('seimeiProgColor2');if(oldColor2)digitColor2=normalizeColor(oldColor2);const oldColorMode=localStorage.getItem('seimeiProgColorMode');if(oldColorMode)digitColorMode=normalizeColorMode(oldColorMode);applyActiveDigitColor();const oldFont=localStorage.getItem('seimeiProgFont');if(oldFont)fontMode=normalizeFont(oldFont);const oldProgress=localStorage.getItem('seimeiProgProgress');if(oldProgress)progressVisible=oldProgress==='show';const oldWake=localStorage.getItem('seimeiProgWakeLock');if(oldWake)wakeLockEnabled=oldWake==='on';const fs=document.getElementById('fontSelect');if(fs)fs.value=fontMode;const cms=document.getElementById('colorModeSelect');if(cms)cms.value=digitColorMode;const c1=document.getElementById('colorSelect');if(c1)c1.value=digitColor1;const c2=document.getElementById('color2Select');if(c2)c2.value=digitColor2;const ps=document.getElementById('progressSelect');if(ps)ps.value=progressVisible?'show':'hide';const ws=document.getElementById('wakeLockSelect');if(ws)ws.value=wakeLockEnabled?'on':'off';remain=steps[0]||0;}
+function saveState(){localStorage.setItem('seimeiProgramTimerV192',JSON.stringify({steps:normalizeSteps(steps),repeat:clampInt(repeat,1,99,1),timerName:normalizeName(timerName),color:normalizeColor(digitColor1),color2:normalizeColor(digitColor2),colorMode:normalizeColorMode(digitColorMode),fontMode:normalizeFont(fontMode),progressVisible:!!progressVisible,wakeLockEnabled:!!wakeLockEnabled,buzzerMode:normalizeBuzzerMode(buzzerMode),vol:normalizeVolume(document.getElementById('volume')?.value)}))}
+function loadState(){try{const s=JSON.parse(localStorage.getItem('seimeiProgramTimerV192')||localStorage.getItem('seimeiProgramTimerV172')||localStorage.getItem('seimeiProgramTimerV171')||localStorage.getItem('seimeiProgramTimerV17')||localStorage.getItem('seimeiProgramTimerV16')||localStorage.getItem('seimeiProgramTimerV15')||localStorage.getItem('seimeiProgramTimerV14')||localStorage.getItem('seimeiProgramTimerV12')||'{}');if(Array.isArray(s.steps)&&s.steps.length)steps=normalizeSteps(s.steps);repeat=clampInt(s.repeat,1,99,repeat);if(s.timerName)timerName=normalizeName(s.timerName);if(s.color)digitColor1=normalizeColor(s.color);if(s.color2)digitColor2=normalizeColor(s.color2);if(s.colorMode)digitColorMode=normalizeColorMode(s.colorMode);if(s.fontMode)fontMode=normalizeFont(s.fontMode);if(s.progressVisible!==undefined)progressVisible=!!s.progressVisible;if(s.wakeLockEnabled!==undefined)wakeLockEnabled=!!s.wakeLockEnabled;if(s.buzzerMode)buzzerMode=normalizeBuzzerMode(s.buzzerMode);if(s.vol!==undefined)document.getElementById('volume').value=normalizeVolume(s.vol);}catch(e){}const oldColor=localStorage.getItem('seimeiProgColor');if(oldColor)digitColor1=normalizeColor(oldColor);const oldColor2=localStorage.getItem('seimeiProgColor2');if(oldColor2)digitColor2=normalizeColor(oldColor2);const oldColorMode=localStorage.getItem('seimeiProgColorMode');if(oldColorMode)digitColorMode=normalizeColorMode(oldColorMode);applyActiveDigitColor();const oldFont=localStorage.getItem('seimeiProgFont');if(oldFont)fontMode=normalizeFont(oldFont);const oldProgress=localStorage.getItem('seimeiProgProgress');if(oldProgress)progressVisible=oldProgress==='show';const oldWake=localStorage.getItem('seimeiProgWakeLock');if(oldWake)wakeLockEnabled=oldWake==='on';const oldBuzzer=localStorage.getItem('seimeiProgBuzzerMode');if(oldBuzzer)buzzerMode=normalizeBuzzerMode(oldBuzzer);const fs=document.getElementById('fontSelect');if(fs)fs.value=fontMode;const cms=document.getElementById('colorModeSelect');if(cms)cms.value=digitColorMode;const c1=document.getElementById('colorSelect');if(c1)c1.value=digitColor1;const c2=document.getElementById('color2Select');if(c2)c2.value=digitColor2;const ps=document.getElementById('progressSelect');if(ps)ps.value=progressVisible?'show':'hide';const ws=document.getElementById('wakeLockSelect');if(ws)ws.value=wakeLockEnabled?'on':'off';const bs=document.getElementById('buzzerModeSelect');if(bs)bs.value=buzzerMode;remain=steps[0]||0;}
 function registerServiceWorker(){
   if('serviceWorker' in navigator){
     window.addEventListener('load',()=>{
