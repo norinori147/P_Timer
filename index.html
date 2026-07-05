@@ -3,9 +3,12 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-<title>SEIMEI Program Timer v1.9.2</title>
+<title>SEIMEI Program Timer v2.0</title>
 <link rel="icon" type="image/png" sizes="192x192" href="seimei_program_timer_icon_play_192.png">
 <link rel="apple-touch-icon" sizes="180x180" href="seimei_program_timer_icon_play_180.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="SEIMEI Timer">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <link rel="manifest" href="manifest.webmanifest">
 <meta name="theme-color" content="#050b14">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -26,7 +29,7 @@ body{background:radial-gradient(circle at top,#12243d 0,#050b14 56%,#02050a 100%
 .board{height:100%;border:1px solid var(--line);border-radius:22px;background:linear-gradient(180deg,rgba(13,23,38,.96),rgba(4,9,17,.96));box-shadow:0 18px 40px rgba(0,0,0,.32);display:grid;grid-template-rows:auto 1fr auto auto;overflow:hidden}
 .topbar{display:flex;align-items:center;justify-content:space-between;padding:8px 14px;border-bottom:1px solid rgba(36,57,85,.75);min-height:44px}
 .brand{font-weight:900;letter-spacing:.05em;color:#dbeafe;font-size:clamp(14px,1.8vw,22px)}
-.status{font-weight:800;color:var(--muted);font-size:clamp(13px,1.6vw,20px);text-align:right}.statusBox{display:flex;align-items:center;justify-content:flex-end;gap:10px}.audioStatus{font-size:clamp(11px,1.2vw,15px);font-weight:900;color:#fbbf24;border:1px solid rgba(251,191,36,.35);background:rgba(120,53,15,.24);border-radius:999px;padding:3px 8px;white-space:nowrap}.audioStatus.ready{color:#bbf7d0;border-color:rgba(34,197,94,.42);background:rgba(20,83,45,.30)}
+.status{font-weight:800;color:var(--muted);font-size:clamp(13px,1.6vw,20px);text-align:right}.statusBox{display:flex;align-items:center;justify-content:flex-end;gap:10px}.audioStatus{font-size:clamp(11px,1.2vw,15px);font-weight:900;color:#fbbf24;border:1px solid rgba(251,191,36,.35);background:rgba(120,53,15,.24);border-radius:999px;padding:3px 8px;white-space:nowrap}.audioStatus.ready{color:#bbf7d0;border-color:rgba(34,197,94,.42);background:rgba(20,83,45,.30)}.updateStatus{display:none;font-size:clamp(11px,1.2vw,15px);font-weight:900;color:#bae6fd;border:1px solid rgba(56,189,248,.35);background:rgba(7,89,133,.25);border-radius:999px;padding:3px 8px;white-space:nowrap}.updateStatus.show{display:inline-flex}
 .timerArea{display:flex;align-items:center;justify-content:center;min-height:0;padding:0 8px}
 /* timer display: font selectable + optional 7-segment */
 .digits{width:100%;height:100%;display:flex;align-items:center;justify-content:center;gap:clamp(8px,1.2vw,22px);filter:saturate(1.12)}
@@ -74,7 +77,7 @@ button.resetStepBtn{background:#334155}button.stepCtl{min-width:42px}.stepCountC
     <section class="board" id="board">
       <div class="topbar">
         <div class="brand">SEIMEI PROGRAM TIMER</div>
-        <div class="statusBox"><div class="status" id="status">開始待機</div><div class="audioStatus" id="audioStatus">音声未有効</div></div>
+        <div class="statusBox"><div class="status" id="status">開始待機</div><button class="updateStatus" id="updateStatus" onclick="applyAppUpdate()">更新あり</button><div class="audioStatus" id="audioStatus">音声未有効</div></div>
       </div>
       <div class="timerArea">
         <div class="digits" id="display" aria-label="timer display"></div>
@@ -99,7 +102,7 @@ button.resetStepBtn{background:#334155}button.stepCtl{min-width:42px}.stepCountC
 
 <div class="modal" id="editModal">
   <div class="modalBox">
-    <div class="modalHead"><h2>Program Timer Edit v1.9.2</h2><button class="small gray" onclick="closeEdit()">閉じる</button></div>
+    <div class="modalHead"><h2>Program Timer Edit v2.0</h2><button class="small gray" onclick="closeEdit()">閉じる</button></div>
     <div class="savedTimers">
       <div class="timerNameBox nameBox"><label>タイマー名</label><input id="timerName" value="基本練習"></div>
       <div class="timerNameBox selectBox"><label>保存済みタイマー</label><select id="savedSelect"></select></div>
@@ -311,8 +314,8 @@ function setProgressVisible(flag){progressVisible=!!flag;localStorage.setItem('s
 function presetShort(){steps=[30,10,30,10,60];timerName='短めサンプル';const ni=document.getElementById('timerName');if(ni)ni.value=timerName;updateStepCountDisplay();renderSteps();saveFromInputs(false)}
 function presetVolley(){steps=[180,60,180,60,300];timerName='練習サンプル';const ni=document.getElementById('timerName');if(ni)ni.value=timerName;updateStepCountDisplay();renderSteps();saveFromInputs(false)}
 
-function getSavedTimers(){try{return JSON.parse(localStorage.getItem('seimeiNamedProgramTimersV192')||localStorage.getItem('seimeiNamedProgramTimersV171')||localStorage.getItem('seimeiNamedProgramTimersV16')||localStorage.getItem('seimeiNamedProgramTimersV15')||'{}')}catch(e){return {}}}
-function setSavedTimers(obj){localStorage.setItem('seimeiNamedProgramTimersV192',JSON.stringify(obj))}
+function getSavedTimers(){try{return JSON.parse(localStorage.getItem('seimeiNamedProgramTimersV20')||localStorage.getItem('seimeiNamedProgramTimersV171')||localStorage.getItem('seimeiNamedProgramTimersV16')||localStorage.getItem('seimeiNamedProgramTimersV15')||'{}')}catch(e){return {}}}
+function setSavedTimers(obj){localStorage.setItem('seimeiNamedProgramTimersV20',JSON.stringify(obj))}
 function refreshSavedSelect(){const sel=document.getElementById('savedSelect');if(!sel)return;const saved=getSavedTimers();sel.innerHTML='';const names=Object.keys(saved).sort((a,b)=>a.localeCompare(b,'ja'));if(!names.length){const op=document.createElement('option');op.value='';op.textContent='保存なし';sel.appendChild(op);return;}names.forEach(name=>{const op=document.createElement('option');op.value=name;op.textContent=name;if(name===timerName)op.selected=true;sel.appendChild(op);});}
 function saveNamedTimer(){saveFromInputs(false);timerName=normalizeName(timerName);const saved=getSavedTimers();saved[timerName]={steps:normalizeSteps(steps),repeat:clampInt(repeat,1,99,1),color:normalizeColor(digitColor1),color2:normalizeColor(digitColor2),colorMode:normalizeColorMode(digitColorMode),fontMode:normalizeFont(fontMode),progressVisible:!!progressVisible,wakeLockEnabled:!!wakeLockEnabled,buzzerMode:normalizeBuzzerMode(buzzerMode),vol:normalizeVolume(document.getElementById('volume')?.value)};setSavedTimers(saved);refreshSavedSelect();alert('「'+timerName+'」を保存しました');}
 function loadNamedTimer(){const sel=document.getElementById('savedSelect');if(!sel||!sel.value)return;const saved=getSavedTimers();const data=saved[sel.value];if(!data)return;timerName=normalizeName(sel.value);steps=normalizeSteps(data.steps);repeat=clampInt(data.repeat,1,99,1);if(data.color)digitColor1=normalizeColor(data.color);if(data.color2)digitColor2=normalizeColor(data.color2);digitColorMode=normalizeColorMode(data.colorMode);applyActiveDigitColor();fontMode=normalizeFont(data.fontMode);progressVisible=!!data.progressVisible;if(data.buzzerMode)buzzerMode=normalizeBuzzerMode(data.buzzerMode);if(data.vol!==undefined)document.getElementById('volume').value=normalizeVolume(data.vol);buildEdit();resetTimer();}
@@ -322,12 +325,31 @@ document.addEventListener('visibilitychange',()=>{if(document.visibilityState===
 function toggleFullscreenMode(){document.body.classList.add('isFull');const el=document.documentElement;if(el.requestFullscreen)el.requestFullscreen().catch(()=>{});}
 function exitFullscreenMode(){document.body.classList.remove('isFull');if(document.fullscreenElement&&document.exitFullscreen)document.exitFullscreen().catch(()=>{});}
 document.addEventListener('fullscreenchange',()=>{if(!document.fullscreenElement)document.body.classList.remove('isFull')});
-function saveState(){localStorage.setItem('seimeiProgramTimerV192',JSON.stringify({steps:normalizeSteps(steps),repeat:clampInt(repeat,1,99,1),timerName:normalizeName(timerName),color:normalizeColor(digitColor1),color2:normalizeColor(digitColor2),colorMode:normalizeColorMode(digitColorMode),fontMode:normalizeFont(fontMode),progressVisible:!!progressVisible,wakeLockEnabled:!!wakeLockEnabled,buzzerMode:normalizeBuzzerMode(buzzerMode),vol:normalizeVolume(document.getElementById('volume')?.value)}))}
-function loadState(){try{const s=JSON.parse(localStorage.getItem('seimeiProgramTimerV192')||localStorage.getItem('seimeiProgramTimerV172')||localStorage.getItem('seimeiProgramTimerV171')||localStorage.getItem('seimeiProgramTimerV17')||localStorage.getItem('seimeiProgramTimerV16')||localStorage.getItem('seimeiProgramTimerV15')||localStorage.getItem('seimeiProgramTimerV14')||localStorage.getItem('seimeiProgramTimerV12')||'{}');if(Array.isArray(s.steps)&&s.steps.length)steps=normalizeSteps(s.steps);repeat=clampInt(s.repeat,1,99,repeat);if(s.timerName)timerName=normalizeName(s.timerName);if(s.color)digitColor1=normalizeColor(s.color);if(s.color2)digitColor2=normalizeColor(s.color2);if(s.colorMode)digitColorMode=normalizeColorMode(s.colorMode);if(s.fontMode)fontMode=normalizeFont(s.fontMode);if(s.progressVisible!==undefined)progressVisible=!!s.progressVisible;if(s.wakeLockEnabled!==undefined)wakeLockEnabled=!!s.wakeLockEnabled;if(s.buzzerMode)buzzerMode=normalizeBuzzerMode(s.buzzerMode);if(s.vol!==undefined)document.getElementById('volume').value=normalizeVolume(s.vol);}catch(e){}const oldColor=localStorage.getItem('seimeiProgColor');if(oldColor)digitColor1=normalizeColor(oldColor);const oldColor2=localStorage.getItem('seimeiProgColor2');if(oldColor2)digitColor2=normalizeColor(oldColor2);const oldColorMode=localStorage.getItem('seimeiProgColorMode');if(oldColorMode)digitColorMode=normalizeColorMode(oldColorMode);applyActiveDigitColor();const oldFont=localStorage.getItem('seimeiProgFont');if(oldFont)fontMode=normalizeFont(oldFont);const oldProgress=localStorage.getItem('seimeiProgProgress');if(oldProgress)progressVisible=oldProgress==='show';const oldWake=localStorage.getItem('seimeiProgWakeLock');if(oldWake)wakeLockEnabled=oldWake==='on';const oldBuzzer=localStorage.getItem('seimeiProgBuzzerMode');if(oldBuzzer)buzzerMode=normalizeBuzzerMode(oldBuzzer);const fs=document.getElementById('fontSelect');if(fs)fs.value=fontMode;const cms=document.getElementById('colorModeSelect');if(cms)cms.value=digitColorMode;const c1=document.getElementById('colorSelect');if(c1)c1.value=digitColor1;const c2=document.getElementById('color2Select');if(c2)c2.value=digitColor2;const ps=document.getElementById('progressSelect');if(ps)ps.value=progressVisible?'show':'hide';const ws=document.getElementById('wakeLockSelect');if(ws)ws.value=wakeLockEnabled?'on':'off';const bs=document.getElementById('buzzerModeSelect');if(bs)bs.value=buzzerMode;remain=steps[0]||0;}
+function saveState(){localStorage.setItem('seimeiProgramTimerV20',JSON.stringify({steps:normalizeSteps(steps),repeat:clampInt(repeat,1,99,1),timerName:normalizeName(timerName),color:normalizeColor(digitColor1),color2:normalizeColor(digitColor2),colorMode:normalizeColorMode(digitColorMode),fontMode:normalizeFont(fontMode),progressVisible:!!progressVisible,wakeLockEnabled:!!wakeLockEnabled,buzzerMode:normalizeBuzzerMode(buzzerMode),vol:normalizeVolume(document.getElementById('volume')?.value)}))}
+function loadState(){try{const s=JSON.parse(localStorage.getItem('seimeiProgramTimerV20')||localStorage.getItem('seimeiProgramTimerV172')||localStorage.getItem('seimeiProgramTimerV171')||localStorage.getItem('seimeiProgramTimerV17')||localStorage.getItem('seimeiProgramTimerV16')||localStorage.getItem('seimeiProgramTimerV15')||localStorage.getItem('seimeiProgramTimerV14')||localStorage.getItem('seimeiProgramTimerV12')||'{}');if(Array.isArray(s.steps)&&s.steps.length)steps=normalizeSteps(s.steps);repeat=clampInt(s.repeat,1,99,repeat);if(s.timerName)timerName=normalizeName(s.timerName);if(s.color)digitColor1=normalizeColor(s.color);if(s.color2)digitColor2=normalizeColor(s.color2);if(s.colorMode)digitColorMode=normalizeColorMode(s.colorMode);if(s.fontMode)fontMode=normalizeFont(s.fontMode);if(s.progressVisible!==undefined)progressVisible=!!s.progressVisible;if(s.wakeLockEnabled!==undefined)wakeLockEnabled=!!s.wakeLockEnabled;if(s.buzzerMode)buzzerMode=normalizeBuzzerMode(s.buzzerMode);if(s.vol!==undefined)document.getElementById('volume').value=normalizeVolume(s.vol);}catch(e){}const oldColor=localStorage.getItem('seimeiProgColor');if(oldColor)digitColor1=normalizeColor(oldColor);const oldColor2=localStorage.getItem('seimeiProgColor2');if(oldColor2)digitColor2=normalizeColor(oldColor2);const oldColorMode=localStorage.getItem('seimeiProgColorMode');if(oldColorMode)digitColorMode=normalizeColorMode(oldColorMode);applyActiveDigitColor();const oldFont=localStorage.getItem('seimeiProgFont');if(oldFont)fontMode=normalizeFont(oldFont);const oldProgress=localStorage.getItem('seimeiProgProgress');if(oldProgress)progressVisible=oldProgress==='show';const oldWake=localStorage.getItem('seimeiProgWakeLock');if(oldWake)wakeLockEnabled=oldWake==='on';const oldBuzzer=localStorage.getItem('seimeiProgBuzzerMode');if(oldBuzzer)buzzerMode=normalizeBuzzerMode(oldBuzzer);const fs=document.getElementById('fontSelect');if(fs)fs.value=fontMode;const cms=document.getElementById('colorModeSelect');if(cms)cms.value=digitColorMode;const c1=document.getElementById('colorSelect');if(c1)c1.value=digitColor1;const c2=document.getElementById('color2Select');if(c2)c2.value=digitColor2;const ps=document.getElementById('progressSelect');if(ps)ps.value=progressVisible?'show':'hide';const ws=document.getElementById('wakeLockSelect');if(ws)ws.value=wakeLockEnabled?'on':'off';const bs=document.getElementById('buzzerModeSelect');if(bs)bs.value=buzzerMode;remain=steps[0]||0;}
+let waitingWorker=null;
+function showUpdateReady(){const el=document.getElementById('updateStatus'); if(el) el.classList.add('show');}
+function applyAppUpdate(){ if(waitingWorker){ waitingWorker.postMessage({type:'SKIP_WAITING'}); } else { location.reload(); } }
 function registerServiceWorker(){
   if('serviceWorker' in navigator){
     window.addEventListener('load',()=>{
-      navigator.serviceWorker.register('./sw.js').catch(()=>{});
+      navigator.serviceWorker.register('./sw.js').then(reg=>{
+        reg.update().catch(()=>{});
+        if(reg.waiting){ waitingWorker=reg.waiting; showUpdateReady(); }
+        reg.addEventListener('updatefound',()=>{
+          const nw=reg.installing;
+          if(!nw) return;
+          nw.addEventListener('statechange',()=>{
+            if(nw.state==='installed' && navigator.serviceWorker.controller){ waitingWorker=nw; showUpdateReady(); }
+          });
+        });
+      }).catch(()=>{});
+    });
+    let refreshing=false;
+    navigator.serviceWorker.addEventListener('controllerchange',()=>{
+      if(refreshing) return;
+      refreshing=true;
+      location.reload();
     });
   }
 }
