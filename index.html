@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-<title>CueTimer v2.2</title>
+<title>CueTimer v2.3</title>
 <link rel="icon" type="image/png" sizes="192x192" href="seimei_program_timer_icon_play_192.png">
 <link rel="apple-touch-icon" sizes="180x180" href="seimei_program_timer_icon_play_180.png">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -78,7 +78,7 @@ button.resetStepBtn{background:#334155}button.stepCtl{min-width:42px}.stepCountC
   <main class="display">
     <section class="board" id="board">
       <div class="topbar">
-        <div class="brand">CueTimer <span class="versionBadge">v2.2</span></div>
+        <div class="brand">CueTimer <span class="versionBadge">v2.3</span></div>
         <div class="statusBox"><div class="status" id="status">開始待機</div><button class="updateStatus" id="updateStatus" onclick="applyAppUpdate()">更新あり</button><div class="audioStatus" id="audioStatus">音声未有効</div></div>
       </div>
       <div class="timerArea">
@@ -129,7 +129,7 @@ button.resetStepBtn{background:#334155}button.stepCtl{min-width:42px}.stepCountC
 </div>
 <div class="modal" id="soundModal">
   <div class="modalBox" style="width:min(720px,96vw)">
-    <div class="modalHead"><h2>音設定</h2><button class="small gray" onclick="closeSoundSettings()">閉じる</button></div>
+    <div class="modalHead"><h2>音設定 <span class="versionBadge">Audio Engine</span></h2><button class="small gray" onclick="closeSoundSettings()">閉じる</button></div>
     <div class="soundSettings">
       <div class="soundOption"><label>ブザー方式</label><select id="buzzerModeSelect" onchange="setBuzzerMode(this.value)"><option value="file">音声ファイル</option><option value="osc">電子音</option><option value="both">両方</option></select></div>
       <div class="soundOption"><label>音テーマ</label><select id="soundThemeSelect" onchange="setSoundTheme(this.value)"><option value="electronic">電子</option><option value="whistle">ホイッスル</option><option value="bell">ベル</option><option value="chime">チャイム</option><option value="custom">カスタム</option></select></div>
@@ -141,7 +141,7 @@ button.resetStepBtn{background:#334155}button.stepCtl{min-width:42px}.stepCountC
       <div class="soundOption"><div class="toggleRow"><span>全終了音</span><input id="endSoundToggle" type="checkbox" onchange="setSoundFlag('end',this.checked)"></div></div>
     </div>
     <div class="bottomBtns"><button onclick="unlockAudio()">音声を有効化</button><button onclick="testBeep()">ブザーテスト</button><button class="good" onclick="closeSoundSettings()">閉じる</button></div>
-    <p class="hint">iPadでは、最初に「音声を有効化」または「ブザーテスト」を押すと音が安定しやすくなります。音テーマを選択できます。カスタム音を使う場合は sounds/custom/ の start.wav・stop.wav・reset.wav・step.wav・end.wav を差し替えてください。</p>
+    <p class="hint">iPadでは、最初に「音声を有効化」または「ブザーテスト」を押してください。v2.3では音声ファイルを事前読込し、再生プールで安定化しています。カスタム音を使う場合は sounds/custom/ の start.wav・stop.wav・reset.wav・step.wav・end.wav を差し替えてください。</p>
   </div>
 </div>
 
@@ -152,6 +152,11 @@ let currentStep=0,currentLoop=1,remain=steps[0];
 let running=false,timerId=null;
 let audioCtx=null;
 let audioReady=false;
+let audioPools={};
+let audioPoolIndex={};
+let audioUnlockedOnce=false;
+const AUDIO_KINDS=["start","stop","reset","step","end"];
+const AUDIO_POOL_SIZE=4;
 let buzzerMode="file";
 let soundTheme="electronic";
 let soundFlags={start:true,stop:false,reset:false,step:true,end:true};
@@ -192,6 +197,55 @@ function renderSeven(text){
     return '<div class="digit7">'+['a','b','c','d','e','f','g'].map(k=>`<span class="seg ${k} ${on.has(k)?'on':''}"></span>`).join('')+'</div>';
   }).join('');
 }
+function createAudioElement(kind){
+  const a=new Audio(getSoundPath(kind));
+  a.preload='auto';
+  a.playsInline=true;
+  a.setAttribute('playsinline','');
+  a.load();
+  return a;
+}
+function buildAudioPools(force=false){
+  const theme=normalizeSoundTheme(soundTheme);
+  if(!force && audioPools.__theme===theme) return;
+  audioPools={__theme:theme};
+  audioPoolIndex={};
+  AUDIO_KINDS.forEach(kind=>{
+    audioPools[kind]=[];
+    audioPoolIndex[kind]=0;
+    for(let i=0;i<AUDIO_POOL_SIZE;i++) audioPools[kind].push(createAudioElement(kind));
+  });
+}
+function getPooledAudio(kind='step'){
+  kind=AUDIO_KINDS.includes(String(kind))?String(kind):'step';
+  buildAudioPools();
+  const pool=audioPools[kind]||[];
+  if(!pool.length) return createAudioElement(kind);
+  const idx=audioPoolIndex[kind]||0;
+  audioPoolIndex[kind]=(idx+1)%pool.length;
+  return pool[idx];
+}
+async function primeAudioPool(){
+  buildAudioPools();
+  const candidates=[];
+  AUDIO_KINDS.forEach(k=>{ if(audioPools[k]?.[0]) candidates.push(audioPools[k][0]); });
+  let ok=false;
+  for(const a of candidates){
+    try{
+      const oldVol=a.volume;
+      a.muted=true;
+      a.volume=0;
+      a.currentTime=0;
+      await a.play();
+      a.pause();
+      a.currentTime=0;
+      a.muted=false;
+      a.volume=oldVol;
+      ok=true;
+    }catch(e){}
+  }
+  return ok;
+}
 async function unlockAudio(){
   let ctxOk=false, fileOk=false;
   try{
@@ -199,20 +253,9 @@ async function unlockAudio(){
     if(audioCtx.state==='suspended') await audioCtx.resume();
     ctxOk = audioCtx.state==='running';
   }catch(e){ ctxOk=false; }
-  try{
-    const a=document.getElementById('beepAudio');
-    if(a){
-      a.src=getSoundPath('step');
-      a.volume=0;
-      a.currentTime=0;
-      await a.play();
-      a.pause();
-      a.currentTime=0;
-      a.volume=normalizeVolume(document.getElementById('volume')?.value||0.9);
-      fileOk=true;
-    }
-  }catch(e){ fileOk=false; }
-  audioReady = ctxOk || fileOk;
+  try{ fileOk = await primeAudioPool(); }catch(e){ fileOk=false; }
+  audioUnlockedOnce = audioUnlockedOnce || ctxOk || fileOk;
+  audioReady = audioUnlockedOnce;
   updateAudioStatus();
   return audioReady;
 }
@@ -229,16 +272,21 @@ function updateAudioStatus(){
 }
 function ensureAudio(){unlockAudio();}
 async function playFileBeep(times=1,long=false,kind='step'){
+  buildAudioPools();
   const vol=normalizeVolume(document.getElementById('volume')?.value||0.9);
-  const gap=long?560:300;
-  for(let i=0;i<times;i++){
+  const safeKind=AUDIO_KINDS.includes(String(kind))?String(kind):'step';
+  const reps=safeKind==='end'?1:Math.max(1,Math.min(5,parseInt(times,10)||1));
+  const gap=long?620:260;
+  for(let i=0;i<reps;i++){
     setTimeout(()=>{
       try{
-        const a=new Audio(getSoundPath(kind));
-        a.preload='auto';
+        const a=getPooledAudio(safeKind);
+        a.pause();
+        a.currentTime=0;
         a.volume=vol;
-        a.play().catch(()=>{});
-      }catch(e){}
+        const p=a.play();
+        if(p && typeof p.catch==='function') p.catch(()=>{ playOscBeep(1,long); });
+      }catch(e){ playOscBeep(1,long); }
     }, i*gap);
   }
 }
@@ -331,10 +379,10 @@ function updateControlState(){const start=document.getElementById('startBtn'),st
 function renderProgress(){const wrap=document.getElementById('progressWrap'), fill=document.getElementById('progressFill'); if(!wrap||!fill)return; wrap.classList.toggle('hidden',!progressVisible); const total=Math.max(1,steps[currentStep]||remain||1); const pct=Math.max(0,Math.min(100,(remain/total)*100)); fill.style.width=pct+'%';}
 function render(){applyActiveDigitColor();const t=fmt(remain); if(fontMode==='seven'){display.innerHTML=renderSeven(t);}else{display.innerHTML='<div class="digitsText font-'+normalizeFont(fontMode)+'">'+t+'</div>';}document.getElementById('stepMeta').textContent=(currentStep+1)+' / '+steps.length;document.getElementById('loopMeta').textContent=currentLoop+' / '+repeat;document.getElementById('nextMeta').textContent=steps[currentStep+1]!=null?fmt(steps[currentStep+1]):(currentLoop<repeat?fmt(steps[0]):'END');statusEl.textContent=running?'RUNNING':(remain===0?'終了':'開始待機');board.classList.toggle('dangerFlash',running&&remain<=5&&remain>0);renderProgress();updateControlState();if(!running)saveState();}
 function toggleStart(){running?pauseTimer():startTimer()}
-async function startTimer(){await unlockAudio();if(running)return;const zeroIndex=steps.findIndex(s=>s<=0);if(zeroIndex>=0){statusEl.textContent='STEP '+(zeroIndex+1)+' が 00:00 です';alert('STEP '+(zeroIndex+1)+' が 00:00 です。時間を設定してください。');return;}if(remain<=0){resetTimer(true)}if(remain<=0){advanceStep()}running=true;if(soundFlags.start) await beep(1,false,'start');await requestWakeLock();stepEndAt=Date.now()+remain*1000;timerId=setInterval(tick,250);render();}
+async function startTimer(){await unlockAudio();if(running)return;const zeroIndex=steps.findIndex(s=>s<=0);if(zeroIndex>=0){statusEl.textContent='STEP '+(zeroIndex+1)+' が 00:00 です';alert('STEP '+(zeroIndex+1)+' が 00:00 です。時間を設定してください。');return;}if(remain<=0){resetTimer(true)}if(remain<=0){advanceStep()}running=true;if(soundFlags.start) beep(1,false,'start');await requestWakeLock();stepEndAt=Date.now()+remain*1000;timerId=setInterval(tick,250);render();}
 function pauseTimer(silent=false){const wasRunning=running;running=false;clearInterval(timerId);timerId=null;stepEndAt=0;releaseWakeLock();if(wasRunning&&!silent&&soundFlags.stop)beep(1,false,'stop');render();saveState();}
-function tick(){if(!running)return;const nextRemain=Math.max(0,Math.ceil((stepEndAt-Date.now())/1000));if(nextRemain!==remain){remain=nextRemain;render();}if(remain<=0){if(soundFlags.step)beep(1,false,'step');advanceStep();}}
-function advanceStep(){if(remain>0)return;let guard=0;do{currentStep++;if(currentStep>=steps.length){currentStep=0;currentLoop++;if(currentLoop>repeat){running=false;clearInterval(timerId);timerId=null;stepEndAt=0;remain=0;releaseWakeLock();statusEl.textContent='終了';if(soundFlags.end)beep(5,true,'end');render();saveState();return;}}remain=steps[currentStep]||0;guard++;}while(remain===0 && guard<steps.length*repeat+2);if(running)stepEndAt=Date.now()+remain*1000;render();}
+function tick(){if(!running)return;const nextRemain=Math.max(0,Math.ceil((stepEndAt-Date.now())/1000));if(nextRemain!==remain){remain=nextRemain;render();}if(remain<=0){const willFinish=currentStep>=steps.length-1 && currentLoop>=repeat;if(!willFinish && soundFlags.step)beep(1,false,'step');advanceStep();}}
+function advanceStep(){if(remain>0)return;let guard=0;do{currentStep++;if(currentStep>=steps.length){currentStep=0;currentLoop++;if(currentLoop>repeat){running=false;clearInterval(timerId);timerId=null;stepEndAt=0;remain=0;releaseWakeLock();statusEl.textContent='終了';if(soundFlags.end)beep(1,true,'end');render();saveState();return;}}remain=steps[currentStep]||0;guard++;}while(remain===0 && guard<steps.length*repeat+2);if(running)stepEndAt=Date.now()+remain*1000;render();}
 function resetTimer(silent=false){const wasRunning=running;pauseTimer(true);if(!silent&&soundFlags.reset)beep(wasRunning?2:1,false,'reset');currentStep=0;currentLoop=1;remain=steps[0]||0;stepEndAt=0;render();saveState();}
 function openEdit(){pauseTimer(true);buildEdit();document.getElementById('editModal').classList.add('show')}
 function closeEdit(){saveFromInputs();document.getElementById('editModal').classList.remove('show');resetTimer(true);}
@@ -365,8 +413,8 @@ document.addEventListener('visibilitychange',()=>{if(document.visibilityState===
 function toggleFullscreenMode(){document.body.classList.add('isFull');const el=document.documentElement;if(el.requestFullscreen)el.requestFullscreen().catch(()=>{});}
 function exitFullscreenMode(){document.body.classList.remove('isFull');if(document.fullscreenElement&&document.exitFullscreen)document.exitFullscreen().catch(()=>{});}
 document.addEventListener('fullscreenchange',()=>{if(!document.fullscreenElement)document.body.classList.remove('isFull')});
-function saveState(){localStorage.setItem('cueTimerV22',JSON.stringify({steps:normalizeSteps(steps),repeat:clampInt(repeat,1,99,1),timerName:normalizeName(timerName),color:normalizeColor(digitColor1),color2:normalizeColor(digitColor2),colorMode:normalizeColorMode(digitColorMode),fontMode:normalizeFont(fontMode),progressVisible:!!progressVisible,wakeLockEnabled:!!wakeLockEnabled,buzzerMode:normalizeBuzzerMode(buzzerMode),soundTheme:normalizeSoundTheme(soundTheme),soundFlags:normalizeSoundFlags(soundFlags),vol:normalizeVolume(document.getElementById('volume')?.value)}))}
-function loadState(){try{const s=JSON.parse(localStorage.getItem('cueTimerV22')||localStorage.getItem('cueTimerV21')||localStorage.getItem('seimeiProgramTimerV20')||localStorage.getItem('seimeiProgramTimerV172')||localStorage.getItem('seimeiProgramTimerV171')||localStorage.getItem('seimeiProgramTimerV17')||localStorage.getItem('seimeiProgramTimerV16')||localStorage.getItem('seimeiProgramTimerV15')||localStorage.getItem('seimeiProgramTimerV14')||localStorage.getItem('seimeiProgramTimerV12')||'{}');if(Array.isArray(s.steps)&&s.steps.length)steps=normalizeSteps(s.steps);repeat=clampInt(s.repeat,1,99,repeat);if(s.timerName)timerName=normalizeName(s.timerName);if(s.color)digitColor1=normalizeColor(s.color);if(s.color2)digitColor2=normalizeColor(s.color2);if(s.colorMode)digitColorMode=normalizeColorMode(s.colorMode);if(s.fontMode)fontMode=normalizeFont(s.fontMode);if(s.progressVisible!==undefined)progressVisible=!!s.progressVisible;if(s.wakeLockEnabled!==undefined)wakeLockEnabled=!!s.wakeLockEnabled;if(s.buzzerMode)buzzerMode=normalizeBuzzerMode(s.buzzerMode);if(s.soundTheme)soundTheme=normalizeSoundTheme(s.soundTheme);if(s.soundFlags)soundFlags=normalizeSoundFlags(s.soundFlags);if(s.vol!==undefined)document.getElementById('volume').value=normalizeVolume(s.vol);}catch(e){}const oldColor=localStorage.getItem('seimeiProgColor');if(oldColor)digitColor1=normalizeColor(oldColor);const oldColor2=localStorage.getItem('seimeiProgColor2');if(oldColor2)digitColor2=normalizeColor(oldColor2);const oldColorMode=localStorage.getItem('seimeiProgColorMode');if(oldColorMode)digitColorMode=normalizeColorMode(oldColorMode);applyActiveDigitColor();const oldFont=localStorage.getItem('seimeiProgFont');if(oldFont)fontMode=normalizeFont(oldFont);const oldProgress=localStorage.getItem('seimeiProgProgress');if(oldProgress)progressVisible=oldProgress==='show';const oldWake=localStorage.getItem('seimeiProgWakeLock');if(oldWake)wakeLockEnabled=oldWake==='on';const oldBuzzer=localStorage.getItem('cueTimerBuzzerMode')||localStorage.getItem('seimeiProgBuzzerMode');if(oldBuzzer)buzzerMode=normalizeBuzzerMode(oldBuzzer);const oldTheme=localStorage.getItem('cueTimerSoundTheme');if(oldTheme)soundTheme=normalizeSoundTheme(oldTheme);const fs=document.getElementById('fontSelect');if(fs)fs.value=fontMode;const cms=document.getElementById('colorModeSelect');if(cms)cms.value=digitColorMode;const c1=document.getElementById('colorSelect');if(c1)c1.value=digitColor1;const c2=document.getElementById('color2Select');if(c2)c2.value=digitColor2;const ps=document.getElementById('progressSelect');if(ps)ps.value=progressVisible?'show':'hide';const ws=document.getElementById('wakeLockSelect');if(ws)ws.value=wakeLockEnabled?'on':'off';remain=steps[0]||0;}
+function saveState(){localStorage.setItem('cueTimerV23',JSON.stringify({steps:normalizeSteps(steps),repeat:clampInt(repeat,1,99,1),timerName:normalizeName(timerName),color:normalizeColor(digitColor1),color2:normalizeColor(digitColor2),colorMode:normalizeColorMode(digitColorMode),fontMode:normalizeFont(fontMode),progressVisible:!!progressVisible,wakeLockEnabled:!!wakeLockEnabled,buzzerMode:normalizeBuzzerMode(buzzerMode),soundTheme:normalizeSoundTheme(soundTheme),soundFlags:normalizeSoundFlags(soundFlags),vol:normalizeVolume(document.getElementById('volume')?.value)}))}
+function loadState(){try{const s=JSON.parse(localStorage.getItem('cueTimerV23')||localStorage.getItem('cueTimerV22')||localStorage.getItem('cueTimerV21')||localStorage.getItem('seimeiProgramTimerV20')||localStorage.getItem('seimeiProgramTimerV172')||localStorage.getItem('seimeiProgramTimerV171')||localStorage.getItem('seimeiProgramTimerV17')||localStorage.getItem('seimeiProgramTimerV16')||localStorage.getItem('seimeiProgramTimerV15')||localStorage.getItem('seimeiProgramTimerV14')||localStorage.getItem('seimeiProgramTimerV12')||'{}');if(Array.isArray(s.steps)&&s.steps.length)steps=normalizeSteps(s.steps);repeat=clampInt(s.repeat,1,99,repeat);if(s.timerName)timerName=normalizeName(s.timerName);if(s.color)digitColor1=normalizeColor(s.color);if(s.color2)digitColor2=normalizeColor(s.color2);if(s.colorMode)digitColorMode=normalizeColorMode(s.colorMode);if(s.fontMode)fontMode=normalizeFont(s.fontMode);if(s.progressVisible!==undefined)progressVisible=!!s.progressVisible;if(s.wakeLockEnabled!==undefined)wakeLockEnabled=!!s.wakeLockEnabled;if(s.buzzerMode)buzzerMode=normalizeBuzzerMode(s.buzzerMode);if(s.soundTheme)soundTheme=normalizeSoundTheme(s.soundTheme);if(s.soundFlags)soundFlags=normalizeSoundFlags(s.soundFlags);if(s.vol!==undefined)document.getElementById('volume').value=normalizeVolume(s.vol);}catch(e){}const oldColor=localStorage.getItem('seimeiProgColor');if(oldColor)digitColor1=normalizeColor(oldColor);const oldColor2=localStorage.getItem('seimeiProgColor2');if(oldColor2)digitColor2=normalizeColor(oldColor2);const oldColorMode=localStorage.getItem('seimeiProgColorMode');if(oldColorMode)digitColorMode=normalizeColorMode(oldColorMode);applyActiveDigitColor();const oldFont=localStorage.getItem('seimeiProgFont');if(oldFont)fontMode=normalizeFont(oldFont);const oldProgress=localStorage.getItem('seimeiProgProgress');if(oldProgress)progressVisible=oldProgress==='show';const oldWake=localStorage.getItem('seimeiProgWakeLock');if(oldWake)wakeLockEnabled=oldWake==='on';const oldBuzzer=localStorage.getItem('cueTimerBuzzerMode')||localStorage.getItem('seimeiProgBuzzerMode');if(oldBuzzer)buzzerMode=normalizeBuzzerMode(oldBuzzer);const oldTheme=localStorage.getItem('cueTimerSoundTheme');if(oldTheme)soundTheme=normalizeSoundTheme(oldTheme);const fs=document.getElementById('fontSelect');if(fs)fs.value=fontMode;const cms=document.getElementById('colorModeSelect');if(cms)cms.value=digitColorMode;const c1=document.getElementById('colorSelect');if(c1)c1.value=digitColor1;const c2=document.getElementById('color2Select');if(c2)c2.value=digitColor2;const ps=document.getElementById('progressSelect');if(ps)ps.value=progressVisible?'show':'hide';const ws=document.getElementById('wakeLockSelect');if(ws)ws.value=wakeLockEnabled?'on':'off';remain=steps[0]||0;}
 let waitingWorker=null;
 function showUpdateReady(){const el=document.getElementById('updateStatus'); if(el) el.classList.add('show');}
 function applyAppUpdate(){ if(waitingWorker){ waitingWorker.postMessage({type:'SKIP_WAITING'}); } else { location.reload(); } }
